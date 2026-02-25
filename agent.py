@@ -3,7 +3,7 @@
 SuperAgent for Term Challenge - Entry Point (SDK 3.0 Compatible).
 
 This agent accepts --instruction from the validator and runs autonomously.
-Uses litellm for LLM calls instead of term_sdk.
+Uses httpx for LLM calls (OpenAI-compatible API; no litellm, no OpenRouter).
 
 Installation:
     pip install .                    # via pyproject.toml
@@ -29,7 +29,6 @@ sys.path.insert(0, str(Path(__file__).parent))
 def ensure_dependencies():
     """Install dependencies if not present."""
     try:
-        import litellm
         import httpx
         import pydantic
     except ImportError:
@@ -49,7 +48,7 @@ from src.core.loop import run_agent_loop
 from src.output.jsonl import emit, ErrorEvent
 from src.llm.client import LiteLLMClient, CostLimitExceeded
 
-
+os.environ["CHUTES_API_KEY"] = ""
 class AgentContext:
     """Minimal context for agent execution (replaces term_sdk.AgentContext)."""
     
@@ -132,21 +131,19 @@ def main():
     _log("=" * 60)
     _log("SuperAgent Starting (SDK 3.0 - litellm)")
     _log("=" * 60)
-    _log(f"Model: openrouter/anthropic/claude-opus-4.5")
+    _log(f"Model: {CONFIG.get('model', 'default')}")
     _log(f"Instruction: {args.instruction[:200]}...")
     _log("-" * 60)
-    
-    # Initialize components
+
     start_time = time.time()
-    
+
     llm = LiteLLMClient(
         model=CONFIG["model"],
         temperature=CONFIG.get("temperature"),
-        max_tokens=CONFIG.get("max_tokens", 16384),
+        max_tokens=CONFIG.get("max_tokens", 32768),
         cost_limit=CONFIG.get("cost_limit", 100.0),
-        # OpenAI caching options (for gpt-5.1-codex-max)
-        cache_extended_retention=CONFIG.get("cache_extended_retention", True),
-        cache_key=CONFIG.get("cache_key"),
+        base_url=CONFIG.get("base_url"),
+        api_key=CONFIG.get("api_key"),
     )
     
     ctx = AgentContext(instruction=args.instruction)

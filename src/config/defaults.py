@@ -1,36 +1,47 @@
 """
 Hardcoded benchmark configuration for SuperAgent.
 
-Simulates Codex exec with these flags:
-- --model gpt-5.2
-- -c model_reasoning_effort=xhigh
-- --dangerously-bypass-approvals-and-sandbox
-- --skip-git-repo-check
-- --enable unified_exec
-- --json
-
-All settings are hardcoded - no CLI arguments needed.
+Uses httpx + OpenAI-compatible API (no litellm, no OpenRouter).
+Set CHUTES_BASE_URL / CHUTES_API_KEY for Chutes, or point to a local endpoint.
+Model routing: on LLM errors we round-robin through the `models` list.
 """
 
 from __future__ import annotations
 
 import os
-from typing import Any, Dict
+from typing import Any, Dict, List
+
+# Default model and fallback list for routing (round-robin on failure)
+_DEFAULT_MODEL = os.environ.get("LLM_MODEL", "moonshotai/Kimi-K2.5-TEE")
+_DEFAULT_MODELS: List[str] = [
+    "moonshotai/Kimi-K2.5-TEE",
+    "zai-org/GLM-4.7-TEE",
+    "zai-org/GLM-4.6-TEE",
+]
+
+# Allow env to override the list as comma-separated (e.g. LLM_MODELS=model1,model2)
+def _get_models() -> List[str]:
+    raw = os.environ.get("LLM_MODELS", "").strip()
+    if raw:
+        return [m.strip() for m in raw.split(",") if m.strip()]
+    # No LLM_MODELS: put LLM_MODEL (or default) first, then other defaults as fallbacks
+    primary = _DEFAULT_MODEL
+    rest = [m for m in _DEFAULT_MODELS if m != primary]
+    return [primary] + rest if rest else [primary]
 
 
-# Main configuration - simulates Codex exec benchmark mode
+_models = _get_models()
+_primary_model = _models[0] if _models else _DEFAULT_MODEL
+
+# Main configuration
 CONFIG: Dict[str, Any] = {
     # ==========================================================================
-    # Model Settings (simulates --model gpt-5.2 -c model_reasoning_effort=xhigh)
+    # Model / API (OpenAI-compatible; no litellm, no OpenRouter)
     # ==========================================================================
-    
-    # Model to use via OpenRouter (prefix with openrouter/ for litellm)
-    "model": "openrouter/anthropic/claude-opus-4.5",
-    
-    # Provider
-    "provider": "openrouter",
-    
-    # Reasoning effort: none, minimal, low, medium, high, xhigh (not used for Claude)
+    "model": _primary_model,
+    "models": _models,
+    "base_url": os.environ.get("CHUTES_BASE_URL", "https://llm.chutes.ai/v1"),
+    "api_key": os.environ.get("CHUTES_API_KEY", ""),
     "reasoning_effort": "xhigh",
     
     # Token limits

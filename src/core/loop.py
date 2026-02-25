@@ -17,7 +17,7 @@ import copy
 import time
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from src.llm.client import LLMError, CostLimitExceeded
 
@@ -72,6 +72,7 @@ def _execute_image_read(
     llm: "LiteLLMClient",
     ctx: Any,
     config: Dict[str, Any],
+    model: Optional[str] = None,
 ) -> str:
     """
     Execute image_read: read image via shell (base64), send to LLM as multimodal, return analysis.
@@ -131,6 +132,7 @@ def _execute_image_read(
             tools=None,
             max_tokens=config.get("max_output_tokens", 4096),
             temperature=0.0,
+            model=model,
         )
         response_text = response.text or ""
     except Exception as e:
@@ -245,9 +247,15 @@ def run_agent_loop(
     cost_limit = config.get("cost_limit", 100.0)
     prev_messages = copy.deepcopy(messages)
 
+    # Model routing: round-robin through config["models"] on LLM errors
+    models: List[str] = config.get("models") or [config.get("model", "zai-org/GLM-5-TEE")]
+    if not models:
+        models = [config.get("model", "zai-org/GLM-5-TEE")]
+    main_model = models[0]
+
     while iteration < max_iterations:
         iteration += 1
-        _log(f"Iteration {iteration}/{max_iterations}")
+        _log(f"Iteration {iteration}/{max_iterations} (model: {main_model})")
 
         temperature = 0.0
         try:
@@ -262,7 +270,7 @@ def run_agent_loop(
 
             cached_messages = _apply_caching(context_messages, enabled=cache_enabled)
 
-            max_retries = 5
+            max_retries = 10
             response = None
 
             for attempt in range(1, max_retries + 1):
@@ -271,11 +279,12 @@ def run_agent_loop(
                     response = llm.chat(
                         cached_messages,
                         tools=None,
-                        max_tokens=config.get("max_tokens", 16384),
+                        max_tokens=config.get("max_tokens", 32768),
                         extra_body={
                             "reasoning": {"effort": config.get("reasoning_effort", "xhigh")},
                         },
                         temperature=temperature,
+                        model=main_model,
                     )
                     prev_messages = copy.deepcopy(messages)
                     total_cost += response.cost
@@ -310,18 +319,29 @@ def run_agent_loop(
                         if attempt < max_retries:
                             continue
                         raise
+                    # Model routing: every 2nd attempt switch to next model (round-robin)
+                    if attempt % 2 == 0 and len(models) > 1:
+                        idx = models.index(main_model) if main_model in models else -1
+                        main_model = models[(idx + 1) % len(models)]
+                        _log(f"Switching to model: {main_model}")
                     if "BadRequestError" in error_msg:
                         messages = copy.deepcopy(prev_messages)
                         cached_messages = _apply_caching(messages, enabled=cache_enabled)
                     if attempt < max_retries:
-                        time.sleep(2 * attempt)
-                        _log(f"Retrying in {2 * attempt} seconds...")
+                        wait_time = min(10 * attempt, 120)
+                        _log(f"Retrying in {wait_time}s...")
+                        time.sleep(wait_time)
                     else:
                         raise
                 except Exception as e:
                     _log(f"Unexpected error (attempt {attempt}/{max_retries}): {type(e).__name__}: {e}")
+                    if attempt % 2 == 0 and len(models) > 1:
+                        idx = models.index(main_model) if main_model in models else -1
+                        main_model = models[(idx + 1) % len(models)]
+                        _log(f"Switching to model: {main_model}")
                     if attempt < max_retries:
-                        time.sleep(2 * attempt)
+                        wait_time = min(10 * attempt, 120)
+                        time.sleep(wait_time)
                     else:
                         raise
 
@@ -383,6 +403,7 @@ def run_agent_loop(
                     llm=llm,
                     ctx=ctx,
                     config=config,
+                    model=main_model,
                 )
                 observation = raw_result
             except Exception as e:
