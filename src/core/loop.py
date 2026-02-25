@@ -412,7 +412,7 @@ def run_agent_loop(
         if getattr(response, "reasoning_details", None) and isinstance(response.reasoning_details, list):
             assistant_message["reasoning_details"] = response.reasoning_details
         if getattr(response, "reasoning", None) and isinstance(response.reasoning, str):
-            assistant_message["reasoning"] = response.reasoning
+            assistant_message["reasoning_content"] = response.reasoning
         messages.append(assistant_message)
 
         # Parse error: ask for valid JSON and continue
