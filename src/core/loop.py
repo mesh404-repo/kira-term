@@ -68,6 +68,14 @@ RunShellCallable = Callable[[Path, str, int], ShellRunResult]
 
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 
+KIMI_2_5_TEE = "moonshotai/Kimi-K2.5-TEE"
+DEEPSEEK_3_2_TEE = "deepseek-ai/DeepSeek-V3.2-TEE"
+
+VISION_MODELS = [
+    KIMI_2_5_TEE,
+    DEEPSEEK_3_2_TEE,
+]
+
 _IMAGE_MIME = {
     ".png": "image/png",
     ".jpg": "image/jpeg",
@@ -130,21 +138,30 @@ def _execute_image_read(
             ],
         },
     ]
+    main_model = model or VISION_MODELS[0]
+    retry = 0
 
-    try:
-        response = llm.chat(
-            multimodal_messages,
-            tools=None,
-            max_tokens=config.get("max_output_tokens", 4096),
-            temperature=0.0,
-            model=model,
-        )
-        response_text = response.text or ""
-    except Exception as e:
-        return f"ERROR: {e}"
-
-    return f"File Read Result for '{file_path}':\n{response_text}"
-
+    while retry < 3:
+        try:
+            response = llm.chat(
+                multimodal_messages,
+                tools=None,
+                max_tokens=config.get("max_output_tokens", 4096),
+                temperature=0.0,
+                model=main_model,
+            )
+            return f"File Read Result for '{file_path}':\n{response.text or ''}"
+        except Exception as e:
+            retry += 1
+            model_index = VISION_MODELS.index(main_model) if main_model in VISION_MODELS else -1
+            main_model = VISION_MODELS[(model_index + 1) % len(VISION_MODELS)]
+            
+            if retry < 3:
+                time.sleep(4)
+            else:
+                return f"ERROR: image_read failed: {e}"
+    
+    return f"ERROR: image_read failed after {retry} attempts"
 
 def _log(msg: str) -> None:
     """Log to stderr."""

@@ -73,6 +73,7 @@ Important notes:
 - Each command's keystrokes are sent exactly as written to the terminal
 - Do not include extra whitespace before or after the keystrokes unless it's part of the intended command
 - Your output MUST be valid JSON only — no extra text before or after the JSON object
+- Do NOT use tool-call markers (e.g. <|tool_call_begin|>), function-call syntax, or markdown code fences; output exactly one raw JSON object
 - Use proper escaping for quotes and special characters within strings
 - Commands array can be empty if you want to wait without taking action
 - "commands" and "image_read" are mutually exclusive — never include both in the same response

@@ -34,47 +34,169 @@ class ParseResult:
     image_read: Optional[ImageReadRequest] = None
 
 
-def _extract_json_content(response: str) -> Tuple[str, List[str]]:
-    """Extract JSON object from response, handling extra text before/after."""
-    warnings: List[str] = []
-    json_start = -1
-    json_end = -1
-    brace_count = 0
-    in_string = False
-    escape_next = False
+# Single token markers like <|tool_call_begin|> — strip so we don't treat them as content
+_TOOL_CALL_MARKER = re.compile(r"<\|[^|]+\|>")
 
-    for i, char in enumerate(response):
-        if escape_next:
-            escape_next = False
+
+def _strip_tool_call_markers(response: str) -> str:
+    """Remove tool-call/section marker tokens so the rest can be parsed as JSON or text."""
+    return _TOOL_CALL_MARKER.sub(" ", response)
+
+
+def _find_json_object_bounds(text: str) -> List[Tuple[int, int]]:
+    """Find all top-level JSON object spans (start, end) in text. Handles strings and escapes."""
+    result: List[Tuple[int, int]] = []
+    i = 0
+    while i < len(text):
+        if text[i] != "{":
+            i += 1
             continue
-        if char == "\\":
-            escape_next = True
-            continue
-        if char == '"' and not escape_next:
-            in_string = not in_string
-            continue
-        if not in_string:
-            if char == "{":
-                if brace_count == 0:
-                    json_start = i
+        start = i
+        brace_count = 0
+        in_string = False
+        escape_next = False
+        quote_char = '"'
+        j = i
+        while j < len(text):
+            c = text[j]
+            if escape_next:
+                escape_next = False
+                j += 1
+                continue
+            if c == "\\" and in_string:
+                escape_next = True
+                j += 1
+                continue
+            if in_string:
+                if c == quote_char:
+                    in_string = False
+                j += 1
+                continue
+            if c == '"' or c == "'":
+                in_string = True
+                quote_char = c
+                j += 1
+                continue
+            if c == "{":
                 brace_count += 1
-            elif char == "}":
+                j += 1
+                continue
+            if c == "}":
                 brace_count -= 1
-                if brace_count == 0 and json_start != -1:
-                    json_end = i + 1
+                if brace_count == 0:
+                    result.append((start, j + 1))
+                    i = j + 1
                     break
+                j += 1
+                continue
+            j += 1
+        else:
+            i += 1
+    return result
 
-    if json_start == -1 or json_end == -1:
+
+def _extract_json_content(response: str) -> Tuple[str, List[str]]:
+    """Extract best JSON object from response. Strips tool-call markers, prefers object with analysis+plan."""
+    warnings: List[str] = []
+    normalized = _strip_tool_call_markers(response).strip()
+
+    bounds = _find_json_object_bounds(normalized)
+    if not bounds:
+        # Try plain-text fallback before giving up
         return "", ["No valid JSON object found"]
 
-    before_text = response[:json_start].strip()
-    after_text = response[json_end:].strip()
-    if before_text:
+    # Try each candidate; prefer one that has both "analysis" and "plan"
+    best_content = ""
+    best_has_required = False
+    for start, end in bounds:
+        candidate = normalized[start:end]
+        try:
+            data = json.loads(candidate)
+            if not isinstance(data, dict):
+                continue
+            has_required = "analysis" in data and "plan" in data
+            if has_required and not best_has_required:
+                best_content = candidate
+                best_has_required = True
+            elif has_required and best_has_required:
+                # Prefer last full object (model often repeats at end)
+                best_content = candidate
+            elif not best_content:
+                best_content = candidate
+        except json.JSONDecodeError:
+            continue
+
+    if not best_content:
+        return "", ["No valid JSON object found"]
+
+    # Warn on extra text
+    first_start = bounds[0][0]
+    last_end = bounds[-1][1]
+    if first_start > 0:
         warnings.append("Extra text detected before JSON object")
-    if after_text:
+    if last_end < len(normalized):
         warnings.append("Extra text detected after JSON object")
 
-    return response[json_start:json_end], warnings
+    return best_content, warnings
+
+
+def _parse_plain_text_fallback(response: str) -> Optional[ParseResult]:
+    """
+    When no JSON is found, try to extract Analysis/Plan/Commands/task_complete from plain text.
+    Handles responses like "Analysis: ... Plan: ... Commands: []" or "Plan: ... task_complete: true".
+    """
+    normalized = _strip_tool_call_markers(response).strip()
+    if not normalized:
+        return None
+
+    analysis = ""
+    plan = ""
+    commands: List[ParsedCommand] = []
+    task_complete = False
+
+    # Analysis: ... (until next major section or end)
+    m_analysis = re.search(r"\bAnalysis:\s*(.+?)(?=\s+Plan:|\s+Requirements|\s+Commands:|\s+task_complete:|\s*$)", normalized, re.DOTALL | re.IGNORECASE)
+    if m_analysis:
+        analysis = m_analysis.group(1).strip()
+
+    # Plan: ... (until next major section or end)
+    m_plan = re.search(r"\bPlan:\s*(.+?)(?=\s+Requirements|\s+Commands:|\s+task_complete:|\s*\{\s*\"|\s*$)", normalized, re.DOTALL | re.IGNORECASE)
+    if m_plan:
+        plan = m_plan.group(1).strip()
+
+    # task_complete: true/false
+    if re.search(r"\btask_complete\s*:\s*true\b", normalized, re.IGNORECASE):
+        task_complete = True
+    # Heuristic: "task is complete" / "mark task complete" in plan or text when no commands
+    if not task_complete and not commands and re.search(r"\b(?:task is complete|mark task complete|task complete\.?)\b", normalized, re.IGNORECASE):
+        task_complete = True
+
+    # Try to find a JSON array for commands after "commands" or "Commands:"
+    m_commands = re.search(r"\bCommands?\s*:\s*(\[\s*\{.*?\}\s*\]|\[\s*\])", normalized, re.DOTALL)
+    if m_commands:
+        try:
+            raw = m_commands.group(1).strip()
+            arr = json.loads(raw)
+            if isinstance(arr, list):
+                for cmd in arr:
+                    if isinstance(cmd, dict) and "keystrokes" in cmd:
+                        duration = float(cmd.get("duration", 1.0)) if isinstance(cmd.get("duration"), (int, float)) else 1.0
+                        duration = min(max(0.1, duration), 60.0)
+                        commands.append(ParsedCommand(keystrokes=str(cmd["keystrokes"]), duration=duration))
+        except json.JSONDecodeError:
+            pass
+
+    # If we have at least analysis or plan, or commands/task_complete, return a result
+    if analysis or plan or commands or task_complete:
+        return ParseResult(
+            commands=commands,
+            is_task_complete=task_complete,
+            error="",
+            warning="Response was plain text; parsed with fallback. Please respond with valid JSON next time.",
+            analysis=analysis,
+            plan=plan,
+        )
+    return None
 
 
 def _parse_commands(commands_data: list, warnings: List[str]) -> Tuple[List[ParsedCommand], str]:
@@ -114,6 +236,9 @@ def parse_response(response: str) -> ParseResult:
     warnings.extend(extra_warnings)
 
     if not json_content:
+        fallback = _parse_plain_text_fallback(response)
+        if fallback is not None:
+            return fallback
         return ParseResult(
             commands=[],
             is_task_complete=False,
@@ -135,6 +260,22 @@ def parse_response(response: str) -> ParseResult:
             error=err,
             warning="- " + "\n- ".join(warnings) if warnings else "",
         )
+
+    # If JSON (e.g. from tool-call fragment) is missing analysis/plan, fill from preceding text
+    normalized = _strip_tool_call_markers(response).strip()
+    if not data.get("analysis") or not data.get("plan"):
+        before_json = normalized
+        idx = normalized.find(json_content)
+        if idx >= 0:
+            before_json = normalized[:idx]
+        m_a = re.search(r"\bAnalysis:\s*(.+?)(?=\s+Plan:|\s+Requirements|\s+Commands:|\s*$)", before_json, re.DOTALL | re.IGNORECASE)
+        m_p = re.search(r"\bPlan:\s*(.+?)(?=\s+Requirements|\s+Commands:|\s*\{\s*\"|\s*$)", before_json, re.DOTALL | re.IGNORECASE)
+        if m_a:
+            data["analysis"] = m_a.group(1).strip()
+        if m_p:
+            data["plan"] = m_p.group(1).strip()
+        if data.get("analysis") or data.get("plan"):
+            warnings.append("analysis/plan taken from text before JSON")
 
     if not isinstance(data, dict):
         return ParseResult(
