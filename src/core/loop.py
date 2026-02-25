@@ -392,6 +392,8 @@ def run_agent_loop(
             item_id = next_item_id()
             emit(ItemCompletedEvent(item=make_agent_message_item(item_id, response_text)))
 
+        _log(f"response_text: {response_text}")
+
         parsed = parse_kira_response(response_text)
 
         # Stored assistant content from parse result (KIRA message management)
