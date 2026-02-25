@@ -34,7 +34,7 @@ CONFIG: Dict[str, Any] = {
     "models": _models,
     "base_url": os.environ.get("CHUTES_BASE_URL", "https://llm.chutes.ai/v1"),
     "api_key": os.environ.get("CHUTES_API_KEY", ""),
-    "reasoning_effort": "xhigh",
+    "reasoning_effort": "none",
     
     # Token limits
     "max_tokens": 16384,

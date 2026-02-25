@@ -297,6 +297,11 @@ def run_agent_loop(
             max_retries = 10
             response = None
 
+            extra_body = {}
+            reasoning_effort = config.get("reasoning_effort", "none")
+            if reasoning_effort and reasoning_effort != "none":
+                extra_body["reasoning"] = {"effort": reasoning_effort}
+
             for attempt in range(1, max_retries + 1):
                 try:
                     # No tool calling: LLM returns plain text (JSON)
@@ -304,9 +309,7 @@ def run_agent_loop(
                         cached_messages,
                         tools=None,
                         max_tokens=config.get("max_tokens", 32768),
-                        extra_body={
-                            "reasoning": {"effort": config.get("reasoning_effort", "xhigh")},
-                        },
+                        extra_body=extra_body if extra_body else None,
                         temperature=temperature,
                         model=main_model,
                     )
