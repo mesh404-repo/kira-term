@@ -99,9 +99,16 @@ def _run_shell(cwd: Path, command: str, timeout_sec: int) -> ShellRunResult:
             output = "(no output)"
         return ShellRunResult(output=output, exit_code=result.returncode)
     except subprocess.TimeoutExpired as e:
-        partial = (e.stdout or "") + (f"\nstderr:\n{e.stderr}" if e.stderr else "")
+        partial_output = ""
+        if e.stdout:
+            partial_output = e.stdout if isinstance(e.stdout, str) else e.stdout.decode("utf-8", errors="replace")
+        if e.stderr:
+            stderr = e.stderr if isinstance(e.stderr, str) else e.stderr.decode("utf-8", errors="replace")
+            partial_output = f"{partial_output}\nstderr:\n{stderr}" if partial_output else stderr
+        if not partial_output:
+            partial_output = "(no output before timeout)"
         return ShellRunResult(
-            output=f"Command timed out after {timeout_sec}s.\n{(partial or '(no output before timeout)').strip()}",
+            output=f"Command timed out after {timeout_sec}s.\n\nPartial output before timeout:\n{partial_output}",
             exit_code=-1,
         )
     except Exception as e:
