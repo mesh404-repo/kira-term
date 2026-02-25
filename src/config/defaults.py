@@ -4,10 +4,10 @@ import os
 from typing import Any, Dict, List
 
 # Default model and fallback list for routing (round-robin on failure)
-_DEFAULT_MODEL = os.environ.get("LLM_MODEL", "zai-org/GLM-5-TEE")
-_DEFAULT_MODELS: List[str] = [    
-    "zai-org/GLM-5-TEE",
+_DEFAULT_MODEL = os.environ.get("LLM_MODEL", "zai-org/GLM-4.7-TEE")
+_DEFAULT_MODELS: List[str] = [        
     "zai-org/GLM-4.7-TEE",
+    "zai-org/GLM-4.6-TEE",
     "moonshotai/Kimi-K2.5-TEE",
 ]
 
