@@ -44,11 +44,11 @@ def ensure_dependencies():
 ensure_dependencies()
 
 from src.config.defaults import CONFIG
-from src.core.loop import run_agent_loop
+from src.core.loop import run_agent_loop, ShellRunResult
 from src.output.jsonl import emit, ErrorEvent
 from src.llm.client import LiteLLMClient, CostLimitExceeded
 
-os.environ["CHUTES_API_KEY"] = ""
+os.environ["CHUTES_API_KEY"] = "cpk_04fb9802dc3948a5948b2fc71a73bbe7.927b6e6713ba57fda8b3bf80e53a5326.hHz2ZGm1ZYavtX0C9jDP2mwTMbseuK18"
 class AgentContext:
     """Minimal context for agent execution (replaces term_sdk.AgentContext)."""
     
@@ -64,36 +64,6 @@ class AgentContext:
     def elapsed_secs(self) -> float:
         return time.time() - self._start_time
     
-    def shell(self, cmd: str, timeout: int = 120) -> "ShellResult":
-        """Execute a shell command."""
-        self.step += 1
-        try:
-            result = subprocess.run(
-                cmd,
-                shell=True,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                cwd=self.cwd,
-            )
-            output = result.stdout + result.stderr
-            exit_code = result.returncode
-        except subprocess.TimeoutExpired:
-            output = "[TIMEOUT]"
-            exit_code = -1
-        except Exception as e:
-            output = f"[ERROR] {e}"
-            exit_code = -1
-        
-        shell_result = ShellResult(output=output, exit_code=exit_code)
-        self.history.append({
-            "step": self.step,
-            "command": cmd,
-            "output": output[:1000],
-            "exit_code": exit_code,
-        })
-        return shell_result
-    
     def done(self):
         """Mark task as complete."""
         self.is_done = True
@@ -104,17 +74,38 @@ class AgentContext:
         print(f"[{timestamp}] [ctx] {msg}", file=sys.stderr, flush=True)
 
 
-class ShellResult:
-    """Result from shell command."""
-    
-    def __init__(self, output: str, exit_code: int):
-        self.output = output
-        self.stdout = output
-        self.stderr = ""
-        self.exit_code = exit_code
-    
-    def has(self, text: str) -> bool:
-        return text in self.output
+def _run_shell(cwd: Path, command: str, timeout_sec: int) -> ShellRunResult:
+    """Run a shell command (registry-style: cwd, command, timeout_sec) -> ShellRunResult."""
+    try:
+        result = subprocess.run(
+            ["sh", "-lc", command],
+            cwd=str(cwd),
+            capture_output=True,
+            text=True,
+            timeout=timeout_sec,
+            env={**os.environ, "TERM": "dumb"},
+        )
+        output_parts = []
+        if result.stdout:
+            output_parts.append(result.stdout)
+        if result.stderr:
+            output_parts.append(result.stderr if not output_parts else f"\nstderr:\n{result.stderr}")
+        output = "".join(output_parts).strip()
+        if result.returncode != 0 and output:
+            output = f"{output}\n\nExit code: {result.returncode}"
+        elif result.returncode != 0:
+            output = f"Exit code: {result.returncode}"
+        if not output:
+            output = "(no output)"
+        return ShellRunResult(output=output, exit_code=result.returncode)
+    except subprocess.TimeoutExpired as e:
+        partial = (e.stdout or "") + (f"\nstderr:\n{e.stderr}" if e.stderr else "")
+        return ShellRunResult(
+            output=f"Command timed out after {timeout_sec}s.\n{(partial or '(no output before timeout)').strip()}",
+            exit_code=-1,
+        )
+    except Exception as e:
+        return ShellRunResult(output=f"[ERROR] {e}", exit_code=-1)
 
 
 def _log(msg: str):
@@ -155,6 +146,7 @@ def main():
             llm=llm,
             ctx=ctx,
             config=CONFIG,
+            run_shell=_run_shell,
         )
     except CostLimitExceeded as e:
         _log(f"Cost limit exceeded: {e}")

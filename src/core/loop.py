@@ -16,8 +16,9 @@ from __future__ import annotations
 import copy
 import time
 import sys
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 
 from src.llm.client import LLMError, CostLimitExceeded
 
@@ -54,6 +55,17 @@ from src.core.kira_json_parser import (
 if TYPE_CHECKING:
     from src.llm.client import LiteLLMClient
 
+
+@dataclass
+class ShellRunResult:
+    """Result of a shell run (registry-style run_shell)."""
+    output: str
+    exit_code: int
+
+
+# Callable: (cwd, command, timeout_sec) -> ShellRunResult (like cute registry _run_shell)
+RunShellCallable = Callable[[Path, str, int], ShellRunResult]
+
 # KIRA: max image size for vision (Anthropic limit ~5MB)
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 
@@ -70,7 +82,8 @@ _IMAGE_MIME = {
 def _execute_image_read(
     image_read: ImageReadRequest,
     llm: "LiteLLMClient",
-    ctx: Any,
+    cwd: Path,
+    run_shell: RunShellCallable,
     config: Dict[str, Any],
     model: Optional[str] = None,
 ) -> str:
@@ -78,11 +91,12 @@ def _execute_image_read(
     Execute image_read: read image via shell (base64), send to LLM as multimodal, return analysis.
 
     Mirrors KIRA terminus_kira._execute_image_read (no harbor).
+    Uses run_shell (registry-style) instead of ctx.shell.
     """
     file_path = image_read.file_path
     # Read image as base64 via shell (KIRA: environment.exec(command=f"base64 {file_path}"))
     # Use base64 -w 0 to avoid newlines if available
-    result = ctx.shell(f"base64 -w 0 '{file_path}' 2>/dev/null || base64 '{file_path}' 2>/dev/null", timeout=30)
+    result = run_shell(cwd, f"base64 -w 0 '{file_path}' 2>/dev/null || base64 '{file_path}' 2>/dev/null", 30)
     if result.exit_code != 0:
         err = result.output or "unknown error"
         return f"ERROR: Failed to read file '{file_path}': {err}"
@@ -209,14 +223,16 @@ def run_agent_loop(
     llm: "LiteLLMClient",
     ctx: Any,
     config: Dict[str, Any],
+    run_shell: RunShellCallable,
 ) -> None:
     """
     Run the main agent loop (KIRA-style: no tool calling, JSON response).
 
     Args:
         llm: LiteLLM client
-        ctx: Agent context with instruction, shell(), done()
+        ctx: Agent context with instruction, cwd, done()
         config: Configuration dictionary
+        run_shell: Registry-style shell runner: (cwd, command, timeout_sec) -> ShellRunResult
     """
     reset_item_counter()
     session_id = f"sess_{int(time.time() * 1000)}"
@@ -225,7 +241,7 @@ def run_agent_loop(
 
     cwd = Path(ctx.cwd)
     _log("Getting initial state...")
-    initial_result = ctx.shell("pwd && ls -la")
+    initial_result = run_shell(cwd, "pwd && ls -la", 60)
     max_output_tokens = config.get("max_output_tokens", 2500)
     initial_state = middle_out_truncate(initial_result.output, max_tokens=max_output_tokens)
     system_prompt = get_kira_system_prompt(instruction=ctx.instruction, terminal_state=initial_state)
@@ -401,7 +417,8 @@ def run_agent_loop(
                 raw_result = _execute_image_read(
                     parsed.image_read,
                     llm=llm,
-                    ctx=ctx,
+                    cwd=cwd,
+                    run_shell=run_shell,
                     config=config,
                     model=main_model,
                 )
@@ -429,7 +446,7 @@ def run_agent_loop(
                 break
 
             pending_completion = True
-            term_result = ctx.shell("pwd && ls -la")
+            term_result = run_shell(cwd, "pwd && ls -la", 60)
             terminal_output = middle_out_truncate(term_result.output or "", max_tokens=max_output_tokens)
             confirmation_msg = get_kira_completion_confirmation(
                 instruction=ctx.instruction,
@@ -451,7 +468,7 @@ def run_agent_loop(
                 )
             ))
             timeout_sec = min(int(cmd.duration) + 5, 120) if cmd.duration else 30
-            result = ctx.shell(cmd.keystrokes.strip() or "echo", timeout=timeout_sec)
+            result = run_shell(cwd, cmd.keystrokes.strip() or "echo", timeout_sec)
             out = (result.output or "").strip()
             output_parts.append(out)
             emit(ItemCompletedEvent(
