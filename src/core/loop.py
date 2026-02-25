@@ -407,8 +407,13 @@ def run_agent_loop(
 
         parsed = parse_response(response_text)
 
-        stored_content = assistant_content_from_parse_result(parsed, response_text)
-        messages.append({"role": "assistant", "content": stored_content})
+        assistant_message = {"role": "assistant", "content": response_text}
+        
+        if getattr(response, "reasoning_details", None) and isinstance(response.reasoning_details, list):
+            assistant_message["reasoning_details"] = response.reasoning_details
+        if getattr(response, "reasoning", None) and isinstance(response.reasoning, str):
+            assistant_message["reasoning"] = response.reasoning
+        messages.append(assistant_message)
 
         # Parse error: ask for valid JSON and continue
         if parsed.error:
