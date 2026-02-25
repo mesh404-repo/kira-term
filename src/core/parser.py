@@ -277,6 +277,16 @@ def parse_response(response: str) -> ParseResult:
         if data.get("analysis") or data.get("plan"):
             warnings.append("analysis/plan taken from text before JSON")
 
+    # If "plan" is missing but "analysis" contains "Plan: ...", split and extract plan
+    if not data.get("plan") and data.get("analysis") and isinstance(data["analysis"], str):
+        analysis_str = data["analysis"].strip()
+        # Match "\n\nPlan:" or "\nPlan:" (case-insensitive) and split
+        match = re.search(r"\n\nPlan:\s*", analysis_str, re.IGNORECASE) or re.search(r"\nPlan:\s*", analysis_str, re.IGNORECASE)
+        if match:
+            data["analysis"] = analysis_str[: match.start()].strip()
+            data["plan"] = analysis_str[match.end() :].strip()
+            warnings.append("plan extracted from analysis field (model had combined analysis + plan)")
+
     if not isinstance(data, dict):
         return ParseResult(
             commands=[],
