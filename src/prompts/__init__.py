@@ -1,5 +1,11 @@
-"""Prompts module for SuperAgent."""
+from src.prompts.system import (
+    get_system_prompt,
+    get_completion_confirmation,
+    BEGIN_USER_MESSAGE,
+)
 
-from src.prompts.system import SYSTEM_PROMPT, get_system_prompt
-
-__all__ = ["SYSTEM_PROMPT", "get_system_prompt"]
+__all__ = [
+    "get_system_prompt",
+    "get_completion_confirmation",
+    "BEGIN_USER_MESSAGE",
+]

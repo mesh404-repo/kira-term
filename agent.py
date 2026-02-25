@@ -139,7 +139,7 @@ def main():
     
     ctx = AgentContext(instruction=args.instruction)
 
-    _log("Components initialized (KIRA-style, no tool calling)")
+    _log("Components initialized")
 
     try:
         run_agent_loop(

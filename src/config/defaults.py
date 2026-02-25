@@ -1,11 +1,3 @@
-"""
-Hardcoded benchmark configuration for SuperAgent.
-
-Uses httpx + OpenAI-compatible API (no litellm, no OpenRouter).
-Set CHUTES_BASE_URL / CHUTES_API_KEY for Chutes, or point to a local endpoint.
-Model routing: on LLM errors we round-robin through the `models` list.
-"""
-
 from __future__ import annotations
 
 import os
@@ -127,13 +119,3 @@ CONFIG: Dict[str, Any] = {
     # Disabled for fully autonomous operation in evaluation mode
     "require_completion_confirmation": False,
 }
-
-
-def get_config() -> Dict[str, Any]:
-    """Get the configuration dictionary."""
-    return CONFIG.copy()
-
-
-def get(key: str, default: Any = None) -> Any:
-    """Get a configuration value."""
-    return CONFIG.get(key, default)

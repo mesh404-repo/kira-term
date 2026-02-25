@@ -1,11 +1,11 @@
 """
-Main agent loop - KIRA-style, no tool calling.
+Main agent loop - no tool calling.
 
 Implements the agentic loop that:
 1. Receives instruction via --instruction argument
 2. Calls LLM (no tools); expects JSON response with commands, analysis, plan, task_complete
 3. Parses JSON and executes commands via shell
-4. Loops until task is complete (with KIRA completion confirmation)
+4. Loops until task is complete (with completion confirmation)
 5. Emits JSONL events throughout
 
 Context management: token-based overflow, pruning, AI compaction. Caching unchanged.
@@ -35,10 +35,10 @@ from src.output.jsonl import (
     make_agent_message_item,
     make_command_execution_item,
 )
-from src.prompts.kira import (
-    get_kira_system_prompt,
-    get_kira_completion_confirmation,
-    KIRA_BEGIN_USER_MESSAGE,
+from src.prompts.system import (
+    get_system_prompt,
+    get_completion_confirmation,
+    BEGIN_USER_MESSAGE,
 )
 from src.utils.truncate import middle_out_truncate
 from src.core.compaction import (
@@ -46,8 +46,8 @@ from src.core.compaction import (
     estimate_total_tokens,
     unwind_messages_to_free_tokens,
 )
-from src.core.kira_json_parser import (
-    parse_kira_response,
+from src.core.parser import (
+    parse_response,
     assistant_content_from_parse_result,
     ImageReadRequest,
 )
@@ -66,10 +66,8 @@ class ShellRunResult:
 # Callable: (cwd, command, timeout_sec) -> ShellRunResult (like cute registry _run_shell)
 RunShellCallable = Callable[[Path, str, int], ShellRunResult]
 
-# KIRA: max image size for vision (Anthropic limit ~5MB)
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 
-# MIME types for image_read (KIRA _execute_image_read)
 _IMAGE_MIME = {
     ".png": "image/png",
     ".jpg": "image/jpeg",
@@ -89,12 +87,8 @@ def _execute_image_read(
 ) -> str:
     """
     Execute image_read: read image via shell (base64), send to LLM as multimodal, return analysis.
-
-    Mirrors KIRA terminus_kira._execute_image_read (no harbor).
-    Uses run_shell (registry-style) instead of ctx.shell.
     """
     file_path = image_read.file_path
-    # Read image as base64 via shell (KIRA: environment.exec(command=f"base64 {file_path}"))
     # Use base64 -w 0 to avoid newlines if available
     result = run_shell(cwd, f"base64 -w 0 '{file_path}' 2>/dev/null || base64 '{file_path}' 2>/dev/null", 30)
     if result.exit_code != 0:
@@ -105,7 +99,6 @@ def _execute_image_read(
     if not b64:
         return f"ERROR: Empty or invalid base64 for '{file_path}'"
 
-    # Optional: enforce size limit (KIRA uses 5MB Anthropic limit)
     try:
         import base64 as b64_module
         size = len(b64_module.b64decode(b64, validate=True))
@@ -125,7 +118,6 @@ def _execute_image_read(
             f"Convert to PNG first (e.g. convert image{ext} to image.png), then use image_read on the PNG file."
         )
 
-    # Build multimodal user message (KIRA: text + image_url)
     multimodal_messages = [
         {
             "role": "user",
@@ -140,7 +132,6 @@ def _execute_image_read(
     ]
 
     try:
-        # No tools, no response_format — image analysis returns free-form text (KIRA)
         response = llm.chat(
             multimodal_messages,
             tools=None,
@@ -226,7 +217,7 @@ def run_agent_loop(
     run_shell: RunShellCallable,
 ) -> None:
     """
-    Run the main agent loop (KIRA-style: no tool calling, JSON response).
+    Run the main agent loop
 
     Args:
         llm: LiteLLM client
@@ -244,11 +235,11 @@ def run_agent_loop(
     initial_result = run_shell(cwd, "pwd && ls -la", 60)
     max_output_tokens = config.get("max_output_tokens", 2500)
     initial_state = middle_out_truncate(initial_result.output, max_tokens=max_output_tokens)
-    system_prompt = get_kira_system_prompt(instruction=ctx.instruction, terminal_state=initial_state)
+    system_prompt = get_system_prompt(instruction=ctx.instruction, terminal_state=initial_state)
 
     messages: List[Dict[str, Any]] = [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": KIRA_BEGIN_USER_MESSAGE},
+        {"role": "user", "content": BEGIN_USER_MESSAGE},
     ]
 
     total_input_tokens = 0
@@ -394,9 +385,8 @@ def run_agent_loop(
 
         _log(f"response_text: {response_text}")
 
-        parsed = parse_kira_response(response_text)
+        parsed = parse_response(response_text)
 
-        # Stored assistant content from parse result (KIRA message management)
         stored_content = assistant_content_from_parse_result(parsed, response_text)
         messages.append({"role": "assistant", "content": stored_content})
 
@@ -412,7 +402,6 @@ def run_agent_loop(
             messages.append({"role": "user", "content": prompt})
             continue
 
-        # image_read: execute via shell (base64) + multimodal LLM call (KIRA-style)
         if parsed.image_read is not None:
             _log(f"image_read: {parsed.image_read.file_path}")
             try:
@@ -430,7 +419,6 @@ def run_agent_loop(
             messages.append({"role": "user", "content": observation})
             continue
 
-        # Task complete (no commands): KIRA completion confirmation flow
         if parsed.is_task_complete:
             if total_cost >= cost_limit:
                 break
@@ -450,12 +438,12 @@ def run_agent_loop(
             pending_completion = True
             term_result = run_shell(cwd, "pwd && ls -la", 60)
             terminal_output = middle_out_truncate(term_result.output or "", max_tokens=max_output_tokens)
-            confirmation_msg = get_kira_completion_confirmation(
+            confirmation_msg = get_completion_confirmation(
                 instruction=ctx.instruction,
                 terminal_output=terminal_output,
             )
             messages.append({"role": "user", "content": confirmation_msg})
-            _log("Requesting KIRA completion confirmation")
+            _log("Requesting completion confirmation")
             continue
 
         # Execute commands via shell (no tool calling)

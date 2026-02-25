@@ -1,8 +1,5 @@
 """
-KIRA-style JSON response parser (no tool calling).
-
 Parses LLM response as JSON with: analysis, plan, commands (or image_read), task_complete.
-Mirrors KIRA/terminus_kira logic without harbor dependency.
 """
 
 from __future__ import annotations
@@ -26,8 +23,8 @@ class ImageReadRequest:
 
 
 @dataclass
-class KiraParseResult:
-    """Result of parsing a KIRA JSON response."""
+class ParseResult:
+    """Result of parsing a JSON response."""
     commands: List[ParsedCommand]
     is_task_complete: bool
     error: str
@@ -105,19 +102,19 @@ def _parse_commands(commands_data: list, warnings: List[str]) -> Tuple[List[Pars
     return commands, ""
 
 
-def parse_kira_response(response: str) -> KiraParseResult:
+def parse_response(response: str) -> ParseResult:
     """
-    Parse a KIRA-format JSON response (analysis, plan, commands or image_read, task_complete).
+    Parse a JSON response (analysis, plan, commands or image_read, task_complete).
 
     Returns:
-        KiraParseResult with commands, is_task_complete, error, warning, analysis, plan, image_read.
+        ParseResult with commands, is_task_complete, error, warning, analysis, plan, image_read.
     """
     warnings: List[str] = []
     json_content, extra_warnings = _extract_json_content(response)
     warnings.extend(extra_warnings)
 
     if not json_content:
-        return KiraParseResult(
+        return ParseResult(
             commands=[],
             is_task_complete=False,
             error="No valid JSON found in response",
@@ -132,7 +129,7 @@ def parse_kira_response(response: str) -> KiraParseResult:
             err += f" | Content: {repr(json_content)}"
         else:
             err += f" | Content preview: {repr(json_content[:100])}..."
-        return KiraParseResult(
+        return ParseResult(
             commands=[],
             is_task_complete=False,
             error=err,
@@ -140,7 +137,7 @@ def parse_kira_response(response: str) -> KiraParseResult:
         )
 
     if not isinstance(data, dict):
-        return KiraParseResult(
+        return ParseResult(
             commands=[],
             is_task_complete=False,
             error="Response must be a JSON object",
@@ -149,7 +146,7 @@ def parse_kira_response(response: str) -> KiraParseResult:
 
     missing = [f for f in ("analysis", "plan") if f not in data]
     if missing:
-        return KiraParseResult(
+        return ParseResult(
             commands=[],
             is_task_complete=False,
             error=f"Missing required fields: {', '.join(missing)}",
@@ -165,7 +162,7 @@ def parse_kira_response(response: str) -> KiraParseResult:
     has_image_read = "image_read" in data
 
     if has_commands and has_image_read:
-        return KiraParseResult(
+        return ParseResult(
             commands=[],
             is_task_complete=False,
             error="Fields 'commands' and 'image_read' are mutually exclusive. Provide exactly one per response.",
@@ -179,7 +176,7 @@ def parse_kira_response(response: str) -> KiraParseResult:
         if isinstance(task_complete, str):
             task_complete = task_complete.lower() in ("true", "1", "yes")
         if not task_complete:
-            return KiraParseResult(
+            return ParseResult(
                 commands=[],
                 is_task_complete=False,
                 error="Response must include either 'commands' or 'image_read'. Provide exactly one of them.",
@@ -199,7 +196,7 @@ def parse_kira_response(response: str) -> KiraParseResult:
     if has_image_read:
         ir = data["image_read"]
         if not isinstance(ir, dict):
-            return KiraParseResult(
+            return ParseResult(
                 commands=[],
                 is_task_complete=False,
                 error="Field 'image_read' must be an object",
@@ -208,7 +205,7 @@ def parse_kira_response(response: str) -> KiraParseResult:
                 plan=plan,
             )
         if "file_path" not in ir or "image_read_instruction" not in ir:
-            return KiraParseResult(
+            return ParseResult(
                 commands=[],
                 is_task_complete=False,
                 error="Field 'image_read' missing required 'file_path' or 'image_read_instruction'",
@@ -220,7 +217,7 @@ def parse_kira_response(response: str) -> KiraParseResult:
             file_path=str(ir["file_path"]),
             image_read_instruction=str(ir["image_read_instruction"]),
         )
-        return KiraParseResult(
+        return ParseResult(
             commands=[],
             is_task_complete=is_complete,
             error="",
@@ -233,7 +230,7 @@ def parse_kira_response(response: str) -> KiraParseResult:
     # has_commands
     commands_list = data.get("commands", [])
     if not isinstance(commands_list, list):
-        return KiraParseResult(
+        return ParseResult(
             commands=[],
             is_task_complete=False,
             error="Field 'commands' must be an array",
@@ -246,7 +243,7 @@ def parse_kira_response(response: str) -> KiraParseResult:
     if parse_error:
         if is_complete:
             warnings.append(parse_error)
-            return KiraParseResult(
+            return ParseResult(
                 commands=[],
                 is_task_complete=True,
                 error="",
@@ -254,7 +251,7 @@ def parse_kira_response(response: str) -> KiraParseResult:
                 analysis=analysis,
                 plan=plan,
             )
-        return KiraParseResult(
+        return ParseResult(
             commands=[],
             is_task_complete=False,
             error=parse_error,
@@ -270,7 +267,7 @@ def parse_kira_response(response: str) -> KiraParseResult:
             "Overriding to false. Run your commands first, then mark task_complete on the next turn."
         )
 
-    return KiraParseResult(
+    return ParseResult(
         commands=commands,
         is_task_complete=is_complete,
         error="",
@@ -280,8 +277,8 @@ def parse_kira_response(response: str) -> KiraParseResult:
     )
 
 
-def assistant_content_from_parse_result(parsed: KiraParseResult, raw_response: str) -> str:
-    """Build assistant message content for history from parse result (KIRA-style)."""
+def assistant_content_from_parse_result(parsed: ParseResult, raw_response: str) -> str:
+    """Build assistant message content for history from parse result."""
     if parsed.error:
         return raw_response
     parts = []

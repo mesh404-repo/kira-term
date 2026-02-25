@@ -1,5 +1,5 @@
 """Configuration module."""
 
-from src.config.defaults import CONFIG, get_config, get
+from src.config.defaults import CONFIG
 
-__all__ = ["CONFIG", "get_config", "get"]
+__all__ = ["CONFIG"]
