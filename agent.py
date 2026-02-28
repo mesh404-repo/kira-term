@@ -3,7 +3,7 @@
 SuperAgent for Term Challenge - Entry Point (SDK 3.0 Compatible).
 
 This agent accepts --instruction from the validator and runs autonomously.
-Uses httpx for LLM calls (OpenAI-compatible API; no litellm, no OpenRouter).
+Uses httpx for LLM calls.
 
 Installation:
     pip install .                    # via pyproject.toml
@@ -48,7 +48,7 @@ from src.core.loop import run_agent_loop, ShellRunResult
 from src.output.jsonl import emit, ErrorEvent
 from src.llm.client import LiteLLMClient, CostLimitExceeded
 
-os.environ["CHUTES_API_KEY"] = "cpk_04fb9802dc3948a5948b2fc71a73bbe7.927b6e6713ba57fda8b3bf80e53a5326.hHz2ZGm1ZYavtX0C9jDP2mwTMbseuK18"
+os.environ["CHUTES_API_KEY"] = "cpk_a28cb80de16d41b9b9a16bc7fa38d618.e4a526f69cb65aefbb6fee6eaad60ebd.kPJyzFGM5y9MjOuuknKPjA2YwI5ph4J5"
 class AgentContext:
     """Minimal context for agent execution (replaces term_sdk.AgentContext)."""
     

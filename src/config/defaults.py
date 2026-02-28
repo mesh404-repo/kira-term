@@ -4,10 +4,10 @@ import os
 from typing import Any, Dict, List
 
 # Default model and fallback list for routing (round-robin on failure)
-_DEFAULT_MODEL = os.environ.get("LLM_MODEL", "MiniMaxAI/MiniMax-M2.5-TEE")
+_DEFAULT_MODEL = os.environ.get("LLM_MODEL", "moonshotai/Kimi-K2.5-TEE")
 _DEFAULT_MODELS: List[str] = [            
-    "MiniMaxAI/MiniMax-M2.5-TEE",
     "moonshotai/Kimi-K2.5-TEE",
+    "deepseek-ai/DeepSeek-V3.2-TEE",
     "zai-org/GLM-4.7-TEE",
 ]
 
@@ -27,9 +27,6 @@ _primary_model = _models[0] if _models else _DEFAULT_MODEL
 
 # Main configuration
 CONFIG: Dict[str, Any] = {
-    # ==========================================================================
-    # Model / API (OpenAI-compatible; no litellm, no OpenRouter)
-    # ==========================================================================
     "model": _primary_model,
     "models": _models,
     "base_url": os.environ.get("CHUTES_BASE_URL", "https://llm.chutes.ai/v1"),
@@ -80,23 +77,8 @@ CONFIG: Dict[str, Any] = {
     # Enable prompt caching
     "cache_enabled": True,
     
-    # OpenAI (gpt-5.1-codex-max) caching configuration:
-    # - Caching is AUTOMATIC for OpenAI models (no markers needed)
-    # - Minimum 1,024 tokens in prefix to start caching
-    # - Prefix matching in increments of 128 tokens after first 1,024
-    # - Extended retention: up to 24 hours (vs 5-10 min default)
-    # - Best practice: Keep system prompt and tools first (stable prefix)
     "cache_extended_retention": True,  # Enable 24h retention for codex-max
     "cache_key": None,  # Optional: set for high-traffic (>15 req/min) scenarios
-    
-    # Anthropic caching notes (if switching to Claude):
-    # - Uses cache_control breakpoints (max 4)
-    # - Claude Opus 4.5 on Bedrock: 4096 tokens minimum per breakpoint
-    # - Claude Sonnet/other: 1024 tokens minimum
-    
-    # ==========================================================================
-    # Simulated Codex Flags (all enabled/bypassed for benchmark)
-    # ==========================================================================
     
     # --dangerously-bypass-approvals-and-sandbox
     "bypass_approvals": True,

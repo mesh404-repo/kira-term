@@ -39,7 +39,6 @@ PRUNE_PROTECT = 40_000  # Protect this many tokens of recent tool output
 PRUNE_MINIMUM = 20_000  # Only prune if we can recover at least this many tokens
 PRUNE_MARKER = "[Old tool result content cleared]"
 
-# Image limits (Anthropic max: 100, but we keep fewer for efficiency)
 MAX_IMAGES_PER_REQUEST = 100
 IMAGE_PRUNE_TARGET = 10  # Keep only last N images (LLM has already seen older ones)
 
@@ -219,11 +218,6 @@ def prune_old_tool_outputs(
     
     return result
 
-
-# =============================================================================
-# Image Pruning (Anthropic limit: 100 images per request)
-# =============================================================================
-
 def count_images_in_message(msg: Dict[str, Any]) -> int:
     """Count number of images in a message."""
     count = 0
@@ -266,7 +260,7 @@ def prune_old_images(
     max_images: int = IMAGE_PRUNE_TARGET,
 ) -> List[Dict[str, Any]]:
     """
-    Remove old images from context to stay under Anthropic's limit.
+    Remove old images from context.
     
     Strategy:
     1. Prefer removing analyzed images first (have assistant response after)
@@ -495,7 +489,7 @@ def manage_context(
     Called before each LLM request to ensure context fits.
 
     Strategy:
-    1. Prune old images first (Anthropic has hard limit of 100)
+    1. Prune old images first
     2. Estimate current token usage
     3. If under threshold and free tokens above proactive threshold, return as-is
     4. Try pruning old tool outputs first

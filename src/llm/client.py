@@ -1,4 +1,4 @@
-"""LLM Client using httpx for OpenAI-compatible API (no litellm, no OpenRouter)."""
+"""LLM Client using httpx."""
 
 from __future__ import annotations
 
@@ -36,22 +36,6 @@ class FunctionCall:
     name: str
     arguments: Dict[str, Any]
 
-    @classmethod
-    def from_openai(cls, call: Dict[str, Any]) -> "FunctionCall":
-        """Parse from OpenAI tool_calls format."""
-        func = call.get("function", {})
-        args_str = func.get("arguments", "{}")
-        try:
-            args = json.loads(args_str)
-        except json.JSONDecodeError:
-            args = {"raw": args_str}
-        return cls(
-            id=call.get("id", ""),
-            name=func.get("name", ""),
-            arguments=args,
-        )
-
-
 @dataclass
 class LLMResponse:
     """Response from the LLM."""
@@ -72,7 +56,7 @@ class LLMResponse:
 
 
 class LLMClient:
-    """LLM Client using httpx for OpenAI-compatible API (e.g. Chutes or local)."""
+    """LLM Client using httpx."""
 
     DEFAULT_BASE_URL = "https://llm.chutes.ai/v1"
 
@@ -133,7 +117,6 @@ class LLMClient:
         return result
 
     def _prepare_messages(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Prepare messages for the API (strip cache_control for OpenAI compat)."""
         prepared = []
         for msg in messages:
             new_msg = dict(msg)
