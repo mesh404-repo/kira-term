@@ -1,8 +1,8 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve, sep } from "node:path";
+import { join, resolve, sep } from "node:path";
 import chalk from "chalk";
-import { CONFIG_DIR_NAME, getAgentDir, getPackageDir } from "../config.js";
+import { CONFIG_DIR_NAME, getAgentDir } from "../config.js";
 import { loadThemeFromPath, type Theme } from "../modes/interactive/theme/theme.js";
 import type { ResourceDiagnostic } from "./diagnostics.js";
 
@@ -85,33 +85,6 @@ function loadProjectContextFiles(
 	if (globalContext) {
 		contextFiles.push(globalContext);
 		seenPaths.add(globalContext.path);
-	}
-
-	// Check the monorepo root (parent of packages/coding-agent/) for AGENTS.md.
-	// This ensures context files shipped with the agent source are discovered
-	// even when cwd is an unrelated directory (e.g. a task repo in Docker).
-	const packageDir = getPackageDir();
-	const monorepoRoot = resolve(packageDir, "..", "..");
-	if (monorepoRoot !== resolvedAgentDir && monorepoRoot !== resolvedCwd) {
-		const monorepoContext = loadContextFileFromDir(monorepoRoot);
-		if (monorepoContext && !seenPaths.has(monorepoContext.path)) {
-			contextFiles.push(monorepoContext);
-			seenPaths.add(monorepoContext.path);
-		}
-	}
-
-	// Also check TAU_AGENT_DIR if set — the Docker solver sets this to the
-	// agent source root which may differ from both agentDir and monorepoRoot.
-	const tauAgentDir = process.env.TAU_AGENT_DIR || process.env.PI_AGENT_DIR;
-	if (tauAgentDir) {
-		const resolved = resolve(tauAgentDir);
-		if (resolved !== resolvedAgentDir && resolved !== monorepoRoot) {
-			const tauContext = loadContextFileFromDir(resolved);
-			if (tauContext && !seenPaths.has(tauContext.path)) {
-				contextFiles.push(tauContext);
-				seenPaths.add(tauContext.path);
-			}
-		}
 	}
 
 	const ancestorContextFiles: Array<{ path: string; content: string }> = [];

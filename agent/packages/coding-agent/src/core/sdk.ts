@@ -247,12 +247,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		thinkingLevel = "off";
 	}
 
-	// In tau benchmark mode, exclude bash to prevent the agent from wasting
-	// budget on tests, builds, linters, or other verification commands.
-	const isTau = !!(process.env.TAU_AGENT_DIR || process.env.TAU_REPO_DIR || process.env.TAU_PROMPT_FILE);
-	const defaultActiveToolNames: ToolName[] = isTau
-		? ["read", "edit", "write"]
-		: ["read", "bash", "edit", "write"];
+	const defaultActiveToolNames: ToolName[] = ["read", "bash", "edit", "write"];
 	const initialActiveToolNames: ToolName[] = options.tools
 		? options.tools.map((t) => t.name).filter((n): n is ToolName => n in allTools)
 		: defaultActiveToolNames;
